@@ -9,6 +9,7 @@
 import UIKit
 import Firebase
 class ViewController: UIViewController {
+    //Mark 2
     var ref: DatabaseReference!
     var user = ""
     
