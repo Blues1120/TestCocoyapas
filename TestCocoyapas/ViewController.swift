@@ -43,10 +43,10 @@ class ViewController: UIViewController {
         let userID = Auth.auth().currentUser?.uid
         ref.child("users").child(userID!).observeSingleEvent(of: .value, with: { (snapshot) in
             // Get user value
-            let value = snapshot.value as? NSDictionary
-            let username = value?["username"] as? String ?? ""
+            _ = snapshot.value as? NSDictionary
+//            let username = value?["username"] as? String ?? ""
             _ = User.self
-            print(value)
+//            print(value)
             // ...
         }) { (error) in
             print(error.localizedDescription)

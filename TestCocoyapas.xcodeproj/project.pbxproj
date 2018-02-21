@@ -14,7 +14,7 @@
 		8188A7472021DC0B00B292BE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8188A7462021DC0B00B292BE /* Assets.xcassets */; };
 		8188A74A2021DC0B00B292BE /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 8188A7482021DC0B00B292BE /* LaunchScreen.storyboard */; };
 		8188A7522021DDEB00B292BE /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8188A7512021DDEB00B292BE /* GoogleService-Info.plist */; };
-		BB87B97316EE2016F72B98BB /* Pods_TestCocoyapas.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BCF715C3E741E07B8B028D6 /* Pods_TestCocoyapas.framework */; };
+		BB87B97316EE2016F72B98BB /* Pods_TestCocoyapas.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BCF715C3E741E07B8B028D6 /* Pods_TestCocoyapas.framework */; settings = {ATTRIBUTES = (Required, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */

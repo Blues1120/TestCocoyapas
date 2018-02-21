@@ -9,10 +9,15 @@
 import UIKit
 import Firebase
 import JSQMessagesViewController
+import Photos
 
-class ChatViewController: JSQMessagesViewController {
+class ChatViewController: JSQMessagesViewController,UIImagePickerControllerDelegate,UINavigationControllerDelegate {
+    private var updatedMessageRefHandle: DatabaseHandle?
+    private var photoMessageMap = [String: JSQPhotoMediaItem]()
+    private let imageURLNotSetKey = "NOTSET"
+    lazy var storageRef: StorageReference = Storage.storage().reference(forURL: "gs://testcocoyapas.appspot.com/")
     private lazy var usersTypingQuery: DatabaseQuery =
-        Database.database().reference().child("typingIndicator").queryOrderedByValue().queryEqual(toValue: true)
+Database.database().reference().child("typingIndicator").queryOrderedByValue().queryEqual(toValue: true)
     private lazy var userIsTypingRef: DatabaseReference =
     Database.database().reference().child("typingIndicator").child(self.senderId)
 //        self.channelRef!.child("typingIndicator").child(self.senderId) // 1
@@ -116,13 +121,37 @@ if let id = messageData["senderId"] as String!, let name = messageData["senderNa
                 // 5
             self.finishReceivingMessage()
     
-} else
-{
-            print("Error! Could not decode message data")
-}
-        })
+}else if let id = messageData["senderId"] as String!,
+        let photoURL = messageData["photoURL"] as String! { // 1
+        // 2
+        if let mediaItem = JSQPhotoMediaItem(maskAsOutgoing: id == self.senderId) {
+            // 3
+            self.addPhotoMessage(withId: id, key: snapshot.key, mediaItem: mediaItem)
+            // 4
+            if photoURL.hasPrefix("gs://") {
+                self.fetchImageDataAtURL(photoURL, forMediaItem: mediaItem, clearsPhotoMessageMapOnSuccessForKey: nil)
+            }
+        }
     }
-   
+else {
+    print("Error! Could not decode message data")
+        }
+        })
+    
+    updatedMessageRefHandle = messageRef.observe(.childChanged, with: { (snapshot) in
+    let key = snapshot.key
+    let messageData = snapshot.value as! Dictionary<String, String> // 1
+    
+    if let photoURL = messageData["photoURL"] as String! { // 2
+    // The photo has been updated.
+    if let mediaItem = self.photoMessageMap[key] { // 3
+    self.fetchImageDataAtURL(photoURL, forMediaItem: mediaItem, clearsPhotoMessageMapOnSuccessForKey: key)
+    // 4
+    }
+    }
+    })
+    }
+    
 //    override func collectionView(_ collectionView:
 //        JSQMessagesCollectionView!, avatarImageDataForItemAt indexPath: IndexPath!)
 //        -> JSQMessageAvatarImageDataSource! {
@@ -165,5 +194,149 @@ if let id = messageData["senderId"] as String!, let name = messageData["senderNa
         super.viewDidAppear(animated)
         observeTyping()
     }
-    
+    func sendPhotoMessage() -> String? {
+        let itemRef = messageRef.childByAutoId()
+        
+        let messageItem = [
+            "photoURL": imageURLNotSetKey,
+            "senderId": senderId!,
+            ]
+        
+        itemRef.setValue(messageItem)
+        
+        JSQSystemSoundPlayer.jsq_playMessageSentSound()
+        
+        finishSendingMessage()
+        return itemRef.key
+    }
+    func setImageURL(_ url: String, forPhotoMessageWithKey key: String) {
+        let itemRef = messageRef.child(key)
+        itemRef.updateChildValues(["photoURL": url])
+    }
+    override func didPressAccessoryButton(_ sender: UIButton!) {
+        let picker = UIImagePickerController()
+        picker.delegate = self as UIImagePickerControllerDelegate & UINavigationControllerDelegate
+        if (UIImagePickerController.isSourceTypeAvailable(UIImagePickerControllerSourceType.camera)) {
+            picker.sourceType = UIImagePickerControllerSourceType.camera
+        } else {
+            picker.sourceType = UIImagePickerControllerSourceType.photoLibrary
+        }
+        
+        present(picker, animated: true, completion:nil)
+    }
+    func imagePickerController(_ picker: UIImagePickerController,
+                               didFinishPickingMediaWithInfo info: [String : Any]) {
+        
+        picker.dismiss(animated: true, completion:nil)
+        
+        // 1
+        if let photoReferenceUrl = info[UIImagePickerControllerPHAsset] as? URL {
+            // Handle picking a Photo from the Photo Library
+            // 2
+            let assets = PHAsset.fetchAssets(withALAssetURLs: [photoReferenceUrl], options: nil)
+            let asset = assets.firstObject
+            
+            // 3
+            if let key = sendPhotoMessage() {
+                // 4
+                asset?.requestContentEditingInput(with: nil, completionHandler: { (contentEditingInput, info) in
+                    let imageFileURL = contentEditingInput?.fullSizeImageURL
+                    
+                    // 5
+                    let path = "\(String(describing: Auth.auth().currentUser?.uid))/\(Int(Date.timeIntervalSinceReferenceDate * 1000))/\(photoReferenceUrl.lastPathComponent)"
+                    
+                    // 6
+                    self.storageRef.child(path).putFile(from: imageFileURL!, metadata: nil) { (metadata, error) in
+                        if let error = error {
+                            print("Error uploading photo: \(error.localizedDescription)")
+                            return
+                        }
+                        // 7
+                        self.setImageURL(self.storageRef.child((metadata?.path)!).description, forPhotoMessageWithKey: key)
+                    }
+                })
+            }
+        } else {
+            // Handle picking a Photo from the Camera - TODO
+            // 1
+            let image = info[UIImagePickerControllerOriginalImage] as! UIImage
+            // 2
+            if let key = sendPhotoMessage() {
+                // 3
+                let imageData = UIImageJPEGRepresentation(image, 1.0)
+                // 4
+                let imagePath = Auth.auth().currentUser!.uid + "/\(Int(Date.timeIntervalSinceReferenceDate * 1000)).jpg"
+                // 5
+                let metadata = StorageMetadata()
+                metadata.contentType = "image/jpeg"
+                // 6
+                storageRef.child(imagePath).putData(imageData!, metadata: metadata){ (metadata, error) in
+//                storageRef.child(imagePath).put(imageData!, metadata: metadata) { (metadata, error) in
+                    if let error = error {
+                        print("Error uploading photo: \(error)")
+                        return
+                    }
+                    // 7
+                    self.setImageURL(self.storageRef.child((metadata?.path)!).description, forPhotoMessageWithKey: key)
+                }
+            }
+        }
+    }
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true, completion:nil)
+    }
+    private func addPhotoMessage(withId id: String, key: String, mediaItem: JSQPhotoMediaItem) {
+        if let message = JSQMessage(senderId: id, displayName: "", media: mediaItem) {
+            messages.append(message)
+            
+            if (mediaItem.image == nil) {
+                photoMessageMap[key] = mediaItem
+            }
+            
+            collectionView.reloadData()
+        }
+    }
+    private func fetchImageDataAtURL(_ photoURL: String, forMediaItem mediaItem: JSQPhotoMediaItem, clearsPhotoMessageMapOnSuccessForKey key: String?) {
+        // 1
+        let storageRef = Storage.storage().reference(forURL: photoURL)
+        
+        // 2
+        storageRef.getData(maxSize: INT64_MAX){ (data, error) in
+            if let error = error {
+                print("Error downloading image data: \(error)")
+                return
+            }
+            // 3
+            storageRef.getMetadata(completion: { (metadata, metadataErr) in
+                if let error = metadataErr {
+                    print("Error downloading metadata: \(error)")
+                    return
+                }
+//                 4
+                if (metadata?.contentType == "image/gif") {
+//                    mediaItem.image = UIImage.gifWithData(data!)
+                } else {
+                    mediaItem.image = UIImage.init(data: data!)
+                }
+                self.collectionView.reloadData()
+                
+                // 5
+                guard key != nil else {
+                    return
+                }
+                self.photoMessageMap.removeValue(forKey: key!)
+            })
+        }
+    }
+    deinit {
+        if let refHandle = newMessageRefHandle {
+            messageRef.removeObserver(withHandle: refHandle)
+        }
+        
+        if let refHandle = updatedMessageRefHandle {
+            messageRef.removeObserver(withHandle: refHandle)
+        }
+    }
 }
+
+
